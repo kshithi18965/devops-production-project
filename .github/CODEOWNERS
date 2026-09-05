@@ -1,7 +1,7 @@
 # CODEOWNERS
-.github/workflows/ @kshithi18965
-k8s/** @kshithi18965
-deploy/** @kshithi18965
-charts/** @kshithi18965
-src/** @kshithi18965
-docs/** @kshithi18965
+.github/workflows/ @kshithi18965 @kshithi-18983
+k8s/** @kshithi18965 @kshithi-18983
+deploy/** @kshithi18965 @kshithi-18983
+charts/** @kshithi18965 @kshithi-18983
+src/** @kshithi18965  @kshithi-18983
+docs/** @kshithi18965 @kshithi-18983
