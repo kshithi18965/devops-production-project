@@ -104,3 +104,145 @@ Same image is used across all environments, only configs change.
 
 Kshithi
 
+
+---
+
+## 🚫 Smart Pipeline Optimization (Ignore Non-Code Changes)
+
+To improve efficiency, the pipeline is designed to **skip unnecessary Docker builds** when only documentation or non-critical files are changed.
+
+### ❓ Problem
+By default, CI/CD pipelines run on **every push**, including:
+- README updates
+- Documentation changes
+- Minor text edits
+
+This leads to:
+- ❌ Unnecessary Docker builds  
+- ❌ Wasted compute resources  
+- ❌ Slower pipelines  
+
+---
+
+### ✅ Solution: Path-Based Trigger Filtering
+
+We use **GitHub Actions path filtering** to trigger the pipeline **only when relevant files change**.
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - "main.py"
+      - "requirements.txt"
+      - "src/**"
+      - ".github/workflows/**"
+🎯 What This Means
+Change Type	Pipeline Trigger
+Application code	✅ YES
+Dependencies	✅ YES
+Dockerfile	✅ YES
+CI/CD configs	✅ YES
+README.md	❌ NO
+Docs	❌ NO
+🧠 Why This Matters
+
+This makes the pipeline:
+
+⚡ Faster → avoids unnecessary builds
+💰 Cost-efficient → saves compute usage
+🔒 Cleaner → focuses only on meaningful changes
+🏭 Production-ready → matches real industry pipelines
+🔥 Real-World Insight
+
+In large-scale systems:
+
+Hundreds of commits happen daily
+Many are documentation-only
+
+Without filtering:
+
+Every commit → Build → Scan → Push ❌
+
+With optimization:
+
+Only code changes → Full pipeline ✅
+✅ Final Result
+
+Your pipeline is now:
+
+Smart • Efficient • Production-Ready
+
+
+---
+
+## 🚫 Smart Pipeline Optimization (Ignore Non-Code Changes)
+
+To improve efficiency, the pipeline is designed to **skip unnecessary Docker builds** when only documentation or non-critical files are changed.
+
+### ❓ Problem
+By default, CI/CD pipelines run on **every push**, including:
+- README updates
+- Documentation changes
+- Minor text edits
+
+This leads to:
+- ❌ Unnecessary Docker builds  
+- ❌ Wasted compute resources  
+- ❌ Slower pipelines  
+
+---
+
+### ✅ Solution: Path-Based Trigger Filtering
+
+We use **GitHub Actions path filtering** to trigger the pipeline **only when relevant files change**.
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - "main.py"
+      - "requirements.txt"
+      - "src/**"
+      - ".github/workflows/**"
+🎯 What This Means
+Change Type	Pipeline Trigger
+Application code	✅ YES
+Dependencies	✅ YES
+Dockerfile	✅ YES
+CI/CD configs	✅ YES
+README.md	❌ NO
+Docs	❌ NO
+🧠 Why This Matters
+
+This makes the pipeline:
+
+ Faster → avoids unnecessary builds
+ Cost-efficient → saves compute usage
+ Cleaner → focuses only on meaningful changes
+ Production-ready → matches real industry pipelines
+ Real-World Insight
+
+In large-scale systems:
+
+Hundreds of commits happen daily
+Many are documentation-only
+
+Without filtering:
+
+Every commit → Build → Scan → Push ❌
+
+With optimization:
+
+Only code changes → Full pipeline ✅
+✅ Final Result
+
+Your pipeline is now:
+
+Smart • Efficient • Production-Ready
+
