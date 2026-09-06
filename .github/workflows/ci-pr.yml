@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  quick-check:
+  quality-security-check:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,13 +19,21 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt || true
+          pip install pytest flake8 bandit safety
+
+      - name: Lint check (flake8)
+        run: |
+          flake8 . || exit 1
+
+      - name: Security scan (bandit)
+        run: |
+          bandit -r . -ll || true
+
+      - name: Dependency scan (safety)
+        run: |
+          safety scan || true
 
       - name: Run tests
         run: |
-          pytest -v
-
-      - name: Lint (optional)
-        run: |
-          pip install flake8 || true
-          flake8 . || true
+          PYTHONPATH=. pytest -v
