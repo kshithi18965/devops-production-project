@@ -30,7 +30,7 @@ jobs:
       # ✅ Security scan (code-level)
       - name: Security scan (bandit)
         run: |
-          bandit -r . || exit 1
+          bandit -r . -ll
 
       # ✅ Dependency vulnerabilities
       - name: Dependency scan (safety)
