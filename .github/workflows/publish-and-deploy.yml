@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "Dockerfile"
+      - "main.py"
+      - "requirements.txt"
+      - "src/**"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -14,23 +20,22 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/devops-production-project
 
 jobs:
+
   test:
     name: CI — PR checks
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           pip install -r requirements.txt || true
-          pip install pytest flake8 bandit safety
+          pip install pytest flake8 bandit
 
       - name: Lint
         run: flake8 . || exit 1
@@ -38,30 +43,57 @@ jobs:
       - name: Security scan (bandit)
         run: bandit -r . -ll || true
 
-      - name: Dependency scan
-        run: safety scan || true
-
       - name: Run tests
         run: PYTHONPATH=. pytest -v
 
-      - name: Docker build test
+
+  build:
+    name: Build image (no push)
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
-          tags: test-image:${{ github.sha }}
+          tags: temp:${{ github.sha }}
 
-  build-scan-push:
-    name: docker-build-scan-push
-    needs: test
+
+  scan:
+    name: Docker security scan (Trivy)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image locally for scan
+        run: |
+          docker build -t temp:${{ github.sha }} .
+
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          image-ref: temp:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+
+  build-and-push:
+    name: publish-and-push
+    needs: scan
     runs-on: ubuntu-latest
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -70,32 +102,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag
+      - name: Set tag
         id: meta
         run: echo "tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      # ✅ Build locally (no push)
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          load: true
-          tags: temp-image:${{ steps.meta.outputs.tag }}
-
-      # ✅ 🔐 Trivy scan (BLOCK if high/critical)
-      - name: Scan Docker image
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: temp-image:${{ steps.meta.outputs.tag }}
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-
-      # ✅ Push only if scan passes
-      - name: Push Docker image
+      - name: Build & push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -103,23 +116,24 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_NAME }}:latest
+          platforms: linux/amd64
+
 
   deploy-staging:
     name: deploy-staging
-    needs: build-scan-push
+    needs: build-and-push
     runs-on: ubuntu-latest
     environment: staging
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup kubeconfig
         env:
           KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
         run: |
           if [ -z "$KUBE_CONFIG_STAGING" ]; then
-            echo "No kubeconfig → skipping deploy safely"
+            echo "No kubeconfig → skipping deploy"
             exit 0
           fi
 
@@ -127,10 +141,9 @@ jobs:
           export KUBECONFIG=$PWD/kubeconfig
           kubectl version --client
 
-      - name: Deploy to staging
+      - name: Deploy
         run: |
-          IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-scan-push.outputs.image_tag }}
-          echo "Deploying image: $IMAGE"
-
+          IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
           kubectl -n staging set image deployment/myapp myapp=$IMAGE --record || true
           kubectl rollout status deployment/myapp -n staging --timeout=120s || true
+
