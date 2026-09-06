@@ -27,37 +27,32 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies (if exists)
+      - name: Install dependencies
         run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
+          pip install -r requirements.txt || true
+          pip install pytest flake8 bandit safety
 
-      - name: Run basic app check
-        run: |
-          if [ -f main.py ]; then
-            python main.py
-          else
-            echo "No main.py found, skipping run"
-          fi
+      - name: Lint
+        run: flake8 . || exit 1
 
-      - name: Lint (non-blocking)
-        run: |
-          pip install flake8 || true
-          flake8 . || true
+      - name: Security scan (bandit)
+        run: bandit -r . -ll || true
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Dependency scan
+        run: safety scan || true
 
-      - name: Docker build test (no push)
+      - name: Run tests
+        run: PYTHONPATH=. pytest -v
+
+      - name: Docker build test
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
           tags: test-image:${{ github.sha }}
 
-  build-and-push:
-    name: publish-and-push
+  build-scan-push:
+    name: docker-build-scan-push
     needs: test
     runs-on: ubuntu-latest
 
@@ -75,14 +70,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag (commit SHA)
+      - name: Set image tag
         id: meta
         run: echo "tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
+      # ✅ Build locally (no push)
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: temp-image:${{ steps.meta.outputs.tag }}
+
+      # ✅ 🔐 Trivy scan (BLOCK if high/critical)
+      - name: Scan Docker image
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: temp-image:${{ steps.meta.outputs.tag }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      # ✅ Push only if scan passes
+      - name: Push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -90,13 +103,10 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
-          platforms: linux/amd64
 
   deploy-staging:
     name: deploy-staging
-    needs: build-and-push
+    needs: build-scan-push
     runs-on: ubuntu-latest
     environment: staging
 
@@ -109,7 +119,7 @@ jobs:
           KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
         run: |
           if [ -z "$KUBE_CONFIG_STAGING" ]; then
-            echo "No kubeconfig provided → skipping deploy safely"
+            echo "No kubeconfig → skipping deploy safely"
             exit 0
           fi
 
@@ -119,7 +129,7 @@ jobs:
 
       - name: Deploy to staging
         run: |
-          IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+          IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-scan-push.outputs.image_tag }}
           echo "Deploying image: $IMAGE"
 
           kubectl -n staging set image deployment/myapp myapp=$IMAGE --record || true
