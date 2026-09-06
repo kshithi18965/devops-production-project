@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  quick-check:
+  quality-security-check:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,12 +20,24 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          pip install pytest flake8 bandit safety
 
+      # ✅ Code Quality
+      - name: Lint check (flake8)
+        run: |
+          flake8 . || exit 1
+
+      # ✅ Security scan (code-level)
+      - name: Security scan (bandit)
+        run: |
+          bandit -r . || exit 1
+
+      # ✅ Dependency vulnerabilities
+      - name: Dependency scan (safety)
+        run: |
+          safety check || exit 1
+
+      # ✅ Unit tests
       - name: Run tests
         run: |
           pytest -v
-
-      - name: Lint (optional)
-        run: |
-          pip install flake8 || true
-          flake8 . || true
