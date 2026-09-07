@@ -21,8 +21,11 @@ env:
 
 jobs:
 
+  # -------------------------
+  # 1. TEST + QUALITY + SECURITY
+  # -------------------------
   test:
-    name: CI — PR checks
+    name: CI — checks
     runs-on: ubuntu-latest
 
     steps:
@@ -32,21 +35,26 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt || true
           pip install pytest flake8 bandit
 
-      - name: Lint
-        run: flake8 . || exit 1
+      - name: Lint (strict)
+        run: |
+          flake8 . || exit 1
 
       - name: Security scan (bandit)
-        run: bandit -r . -ll || true
+        run: |
+          bandit -r . -ll || true
 
       - name: Run tests
-        run: PYTHONPATH=. pytest -v
+        run: |
+          PYTHONPATH=. pytest -v
 
-
+  # -------------------------
+  # 2. BUILD (NO PUSH)
+  # -------------------------
   build:
     name: Build image (no push)
     needs: test
@@ -54,16 +62,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
           tags: temp:${{ github.sha }}
 
-
+  # -------------------------
+  # 3. SECURITY SCAN (TRIVY)
+  # -------------------------
   scan:
     name: Docker security scan (Trivy)
     needs: build
@@ -72,7 +83,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image locally for scan
+      - name: Build image locally
         run: |
           docker build -t temp:${{ github.sha }} .
 
@@ -83,9 +94,11 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 1
 
-
+  # -------------------------
+  # 4. BUILD & PUSH (GHCR)
+  # -------------------------
   build-and-push:
-    name: publish-and-push
+    name: Publish to GHCR
     needs: scan
     runs-on: ubuntu-latest
 
@@ -102,13 +115,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set tag
+      - name: Set image tag
         id: meta
         run: echo "tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build & push
+      - name: Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -118,9 +131,11 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           platforms: linux/amd64
 
-
+  # -------------------------
+  # 5. DEPLOY TO STAGING
+  # -------------------------
   deploy-staging:
-    name: deploy-staging
+    name: Deploy to Staging
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: staging
@@ -141,9 +156,12 @@ jobs:
           export KUBECONFIG=$PWD/kubeconfig
           kubectl version --client
 
-      - name: Deploy
+      - name: Deploy to staging
         run: |
           IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+
+          echo "Deploying $IMAGE to staging"
+
           kubectl -n staging set image deployment/myapp myapp=$IMAGE --record || true
           kubectl rollout status deployment/myapp -n staging --timeout=120s || true
 
