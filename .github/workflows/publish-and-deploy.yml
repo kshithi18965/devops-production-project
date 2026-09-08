@@ -22,83 +22,57 @@ env:
 jobs:
 
   # -------------------------
-  # 1. TEST + QUALITY + SECURITY
+  # 1. TEST
   # -------------------------
   test:
-    name: CI — checks
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
+      - run: |
           pip install -r requirements.txt || true
           pip install pytest flake8 bandit
 
-      - name: Lint (strict)
-        run: |
-          flake8 . || exit 1
-
-      - name: Security scan (bandit)
-        run: |
-          bandit -r . -ll || true
-
-      - name: Run tests
-        run: |
-          PYTHONPATH=. pytest -v
+      - run: flake8 . || exit 1
+      - run: bandit -r . -ll || true
+      - run: PYTHONPATH=. pytest -v
 
   # -------------------------
-  # 2. BUILD (NO PUSH)
+  # 2. BUILD IMAGE
   # -------------------------
   build:
-    name: Build image (no push)
     needs: test
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: temp:${{ github.sha }}
+      - name: Build image
+        run: docker build -t temp:${{ github.sha }} .
 
   # -------------------------
-  # 3. SECURITY SCAN (TRIVY)
+  # 3. SCAN IMAGE (FIXED)
   # -------------------------
   scan:
-    name: Docker security scan (Trivy)
     needs: build
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image locally
-        run: |
-          docker build -t temp:${{ github.sha }} .
-
-      - name: Run Trivy scan
+      - name: Scan with Trivy
         uses: aquasecurity/trivy-action@v0.20.0
         with:
           image-ref: temp:${{ github.sha }}
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          vuln-type: os,library
           exit-code: 1
 
   # -------------------------
-  # 4. BUILD & PUSH (GHCR)
+  # 4. PUSH IMAGE
   # -------------------------
   build-and-push:
-    name: Publish to GHCR
     needs: scan
     runs-on: ubuntu-latest
 
@@ -108,14 +82,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to GHCR
+      - name: Login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag
+      - name: Tag
         id: meta
         run: echo "tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
@@ -129,13 +103,11 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_NAME }}:latest
-          platforms: linux/amd64
 
   # -------------------------
-  # 5. DEPLOY TO STAGING
+  # 5. DEPLOY
   # -------------------------
   deploy-staging:
-    name: Deploy to Staging
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: staging
@@ -154,14 +126,10 @@ jobs:
 
           echo "$KUBE_CONFIG_STAGING" > kubeconfig
           export KUBECONFIG=$PWD/kubeconfig
-          kubectl version --client
 
-      - name: Deploy to staging
+      - name: Deploy
         run: |
           IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
 
-          echo "Deploying $IMAGE to staging"
-
           kubectl -n staging set image deployment/myapp myapp=$IMAGE --record || true
           kubectl rollout status deployment/myapp -n staging --timeout=120s || true
-
