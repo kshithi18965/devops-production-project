@@ -9,7 +9,7 @@ on:
       - "main.py"
       - "requirements.txt"
       - "src/**"
-      - ".github/workflows/**"
+      - ".github/workflows/publish-and-deploy.yml"
 
 permissions:
   contents: read
