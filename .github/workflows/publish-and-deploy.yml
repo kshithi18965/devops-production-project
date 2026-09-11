@@ -136,31 +136,36 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: staging
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        env:
-          KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
+      - name: Deploy to staging with Helm
         run: |
-          if [ -z "$KUBE_CONFIG_STAGING" ]; then
-            echo "No kubeconfig → skipping deploy"
-            exit 0
-          fi
+          helm upgrade --install shopapp helm/shopapp \
+            -f helm/shopapp/values-staging.yaml \
+            --namespace staging \
+            --set image.tag=${{ needs.build-and-push.outputs.image_tag }} \
+            --wait --timeout 120s
 
-          echo "$KUBE_CONFIG_STAGING" > kubeconfig
-          export KUBECONFIG=$PWD/kubeconfig
-          kubectl version --client
+  # -------------------------
+  # 6. DEPLOY TO PRODUCTION
+  # -------------------------
+  deploy-production:
+    name: Deploy to Production
+    needs: [build-and-push, deploy-staging]
+    runs-on: self-hosted
+    environment: production
 
-      - name: Deploy to staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to production with Helm
         run: |
-          IMAGE=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
-
-          echo "Deploying $IMAGE to staging"
-
-          kubectl -n staging set image deployment/myapp myapp=$IMAGE --record || true
-          kubectl rollout status deployment/myapp -n staging --timeout=120s || true
-
+          helm upgrade --install shopapp helm/shopapp \
+            -f helm/shopapp/values-production.yaml \
+            --namespace production \
+            --set image.tag=${{ needs.build-and-push.outputs.image_tag }} \
+            --wait --timeout 120s
