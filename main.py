@@ -13,7 +13,7 @@ cart = []
 
 @app.route("/")
 def home():
-    return jsonify({"message": "Welcome to the Simple Shop API"})
+    return jsonify({"message": "Welcome to Broken Simple Shop API"})
 
 
 @app.route("/health")
